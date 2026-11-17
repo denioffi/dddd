@@ -1,0 +1,608 @@
+-- LocalScript | Мульти-отслеживание + копирование ID + фильтр Animate + список игроков
+-- Вставьте в StarterPlayer -> StarterPlayerScripts
+
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+
+local LocalPlayer = Players.LocalPlayer
+
+-- === УДАЛЯЕМ ПРОШЛЫЙ GUI ===
+local playerGui = LocalPlayer:WaitForChild("PlayerGui")
+for _, child in ipairs(playerGui:GetChildren()) do
+    if child.Name == "AnimationTracker" or child.Name == "AnimationTrackerOpen" then
+        child:Destroy()
+    end
+end
+
+-- === СБОР ID ИЗ ANIMATE ===
+local function collectAnimateIds(character)
+    local ids = {}
+    if not character then return ids end
+    local animate = character:FindFirstChild("Animate")
+    if not animate then return ids end
+
+    for _, d in ipairs(animate:GetDescendants()) do
+        if d:IsA("Animation") then
+            local id = tostring(d.AnimationId):gsub("rbxassetid://", "")
+            if id ~= "" and id ~= "0" then ids[id] = true end
+        elseif d:IsA("StringValue") or d:IsA("NumberValue") then
+            local val = tostring(d.Value):gsub("rbxassetid://", "")
+            if val:match("^%d+$") then ids[val] = true end
+        end
+    end
+    return ids
+end
+
+-- === ПЛАВАЮЩАЯ КНОПКА ОТКРЫТИЯ ===
+local openGui = Instance.new("ScreenGui")
+openGui.Name = "AnimationTrackerOpen"
+openGui.ResetOnSpawn = false
+openGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+openGui.Parent = playerGui
+
+local openBtn = Instance.new("TextButton")
+openBtn.Size = UDim2.new(0, 46, 0, 46)
+openBtn.Position = UDim2.new(0, 20, 0, 20)
+openBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 200)
+openBtn.Text = "🎬"
+openBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+openBtn.Font = Enum.Font.GothamBold
+openBtn.TextSize = 22
+openBtn.AutoButtonColor = true
+openBtn.Active = true
+openBtn.Draggable = true
+openBtn.Parent = openGui
+Instance.new("UICorner", openBtn).CornerRadius = UDim.new(0, 10)
+local openStroke = Instance.new("UIStroke", openBtn)
+openStroke.Thickness = 2
+openStroke.Color = Color3.fromRGB(120, 180, 240)
+
+-- === ОСНОВНОЙ GUI ===
+local screenGui = Instance.new("ScreenGui")
+screenGui.Name = "AnimationTracker"
+screenGui.ResetOnSpawn = false
+screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+screenGui.Parent = playerGui
+
+local mainFrame = Instance.new("Frame")
+mainFrame.Size = UDim2.new(0, 620, 0, 600)
+mainFrame.Position = UDim2.new(0.5, -310, 0.5, -300)
+mainFrame.BackgroundColor3 = Color3.fromRGB(25, 25, 30)
+mainFrame.BorderSizePixel = 0
+mainFrame.Active = true
+mainFrame.Draggable = true
+mainFrame.Parent = screenGui
+Instance.new("UICorner", mainFrame).CornerRadius = UDim.new(0, 12)
+local stroke = Instance.new("UIStroke", mainFrame)
+stroke.Thickness = 2
+stroke.Color = Color3.fromRGB(80, 80, 100)
+stroke.Transparency = 0.3
+
+-- Заголовок
+local titleBar = Instance.new("Frame")
+titleBar.Size = UDim2.new(1, 0, 0, 45)
+titleBar.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+titleBar.BorderSizePixel = 0
+titleBar.Parent = mainFrame
+Instance.new("UICorner", titleBar).CornerRadius = UDim.new(0, 12)
+local cover = Instance.new("Frame", titleBar)
+cover.Size = UDim2.new(1, 0, 0, 10)
+cover.Position = UDim2.new(0, 0, 1, -10)
+cover.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+cover.BorderSizePixel = 0
+
+local titleLabel = Instance.new("TextLabel")
+titleLabel.Size = UDim2.new(1, -100, 1, 0)
+titleLabel.Position = UDim2.new(0, 15, 0, 0)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "🎬 ID анимации"
+titleLabel.TextColor3 = Color3.fromRGB(240, 240, 255)
+titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+titleLabel.Font = Enum.Font.GothamBold
+titleLabel.TextSize = 15
+titleLabel.Parent = titleBar
+
+local closeBtn = Instance.new("TextButton")
+closeBtn.Size = UDim2.new(0, 30, 0, 30)
+closeBtn.Position = UDim2.new(1, -38, 0, 7)
+closeBtn.BackgroundColor3 = Color3.fromRGB(200, 60, 60)
+closeBtn.Text = "✕"
+closeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+closeBtn.Font = Enum.Font.GothamBold
+closeBtn.TextSize = 14
+closeBtn.Parent = titleBar
+Instance.new("UICorner", closeBtn).CornerRadius = UDim.new(0, 8)
+
+-- Кнопка сворачивания в плавающую
+local hideBtn = Instance.new("TextButton")
+hideBtn.Size = UDim2.new(0, 30, 0, 30)
+hideBtn.Position = UDim2.new(1, -74, 0, 7)
+hideBtn.BackgroundColor3 = Color3.fromRGB(90, 120, 170)
+hideBtn.Text = "—"
+hideBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+hideBtn.Font = Enum.Font.GothamBold
+hideBtn.TextSize = 16
+hideBtn.Parent = titleBar
+Instance.new("UICorner", hideBtn).CornerRadius = UDim.new(0, 8)
+
+-- Поле ников
+local nameFrame = Instance.new("Frame")
+nameFrame.Size = UDim2.new(1, -30, 0, 52)
+nameFrame.Position = UDim2.new(0, 15, 0, 55)
+nameFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+nameFrame.BorderSizePixel = 0
+nameFrame.Parent = mainFrame
+Instance.new("UICorner", nameFrame).CornerRadius = UDim.new(0, 6)
+
+local nameHint = Instance.new("TextLabel")
+nameHint.Size = UDim2.new(1, -10, 0, 15)
+nameHint.Position = UDim2.new(0, 5, 0, 2)
+nameHint.BackgroundTransparency = 1
+nameHint.Text = "Ники игроков (через запятую или пробел):"
+nameHint.TextColor3 = Color3.fromRGB(130, 130, 150)
+nameHint.Font = Enum.Font.Gotham
+nameHint.TextSize = 10
+nameHint.TextXAlignment = Enum.TextXAlignment.Left
+nameHint.Parent = nameFrame
+
+local nameBox = Instance.new("TextBox")
+nameBox.Size = UDim2.new(1, -10, 0, 31)
+nameBox.Position = UDim2.new(0, 5, 0, 17)
+nameBox.BackgroundTransparency = 1
+nameBox.Text = ""
+nameBox.PlaceholderText = "Builderman, Shedletsky"
+nameBox.TextColor3 = Color3.fromRGB(220, 220, 240)
+nameBox.PlaceholderColor3 = Color3.fromRGB(110, 110, 130)
+nameBox.Font = Enum.Font.Gotham
+nameBox.TextSize = 13
+nameBox.TextXAlignment = Enum.TextXAlignment.Left
+nameBox.ClearTextOnFocus = false
+nameBox.Parent = nameFrame
+
+local searchBtn = Instance.new("TextButton")
+searchBtn.Size = UDim2.new(0, 90, 0, 32)
+searchBtn.Position = UDim2.new(1, -105, 0, 115)
+searchBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 200)
+searchBtn.Text = "Найти"
+searchBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+searchBtn.Font = Enum.Font.GothamBold
+searchBtn.TextSize = 14
+searchBtn.Parent = mainFrame
+Instance.new("UICorner", searchBtn).CornerRadius = UDim.new(0, 6)
+
+local statusLabel = Instance.new("TextLabel")
+statusLabel.Size = UDim2.new(1, -30, 0, 18)
+statusLabel.Position = UDim2.new(0, 15, 0, 155)
+statusLabel.BackgroundTransparency = 1
+statusLabel.Text = "Слежу за: —"
+statusLabel.TextColor3 = Color3.fromRGB(150, 200, 150)
+statusLabel.Font = Enum.Font.Gotham
+statusLabel.TextSize = 11
+statusLabel.TextXAlignment = Enum.TextXAlignment.Left
+statusLabel.TextTruncate = Enum.TextTruncate.AtEnd
+statusLabel.Parent = mainFrame
+
+-- === ЛЕВАЯ ПАНЕЛЬ: АНИМАЦИИ ===
+local listTitle = Instance.new("TextLabel")
+listTitle.Size = UDim2.new(0.6, -25, 0, 20)
+listTitle.Position = UDim2.new(0, 15, 0, 180)
+listTitle.BackgroundTransparency = 1
+listTitle.Text = "Анимации (клик = копировать):"
+listTitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+listTitle.Font = Enum.Font.GothamBold
+listTitle.TextSize = 12
+listTitle.TextXAlignment = Enum.TextXAlignment.Left
+listTitle.Parent = mainFrame
+
+local scrollFrame = Instance.new("ScrollingFrame")
+scrollFrame.Size = UDim2.new(0.6, -25, 1, -218)
+scrollFrame.Position = UDim2.new(0, 15, 0, 202)
+scrollFrame.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+scrollFrame.BorderSizePixel = 0
+scrollFrame.ScrollBarThickness = 8
+scrollFrame.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 120)
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+scrollFrame.ScrollingDirection = Enum.ScrollingDirection.Y
+scrollFrame.ClipsDescendants = true
+scrollFrame.Parent = mainFrame
+Instance.new("UICorner", scrollFrame).CornerRadius = UDim.new(0, 8)
+
+local listLayout = Instance.new("UIListLayout")
+listLayout.Padding = UDim.new(0, 4)
+listLayout.SortOrder = Enum.SortOrder.LayoutOrder
+listLayout.Parent = scrollFrame
+
+listLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, listLayout.AbsoluteContentSize.Y + 10)
+end)
+
+-- === ПРАВАЯ ПАНЕЛЬ: СПИСОК ИГРОКОВ ===
+local playersTitle = Instance.new("TextLabel")
+playersTitle.Size = UDim2.new(0.4, -25, 0, 20)
+playersTitle.Position = UDim2.new(0.6, 10, 0, 180)
+playersTitle.BackgroundTransparency = 1
+playersTitle.Text = "Игроки на сервере:"
+playersTitle.TextColor3 = Color3.fromRGB(180, 180, 200)
+playersTitle.Font = Enum.Font.GothamBold
+playersTitle.TextSize = 12
+playersTitle.TextXAlignment = Enum.TextXAlignment.Left
+playersTitle.Parent = mainFrame
+
+-- Поле поиска по нику
+local playersSearchFrame = Instance.new("Frame")
+playersSearchFrame.Size = UDim2.new(0.4, -25, 0, 28)
+playersSearchFrame.Position = UDim2.new(0.6, 10, 0, 202)
+playersSearchFrame.BackgroundColor3 = Color3.fromRGB(40, 40, 50)
+playersSearchFrame.BorderSizePixel = 0
+playersSearchFrame.Parent = mainFrame
+Instance.new("UICorner", playersSearchFrame).CornerRadius = UDim.new(0, 6)
+
+local playersSearchBox = Instance.new("TextBox")
+playersSearchBox.Size = UDim2.new(1, -10, 1, -4)
+playersSearchBox.Position = UDim2.new(0, 5, 0, 2)
+playersSearchBox.BackgroundTransparency = 1
+playersSearchBox.Text = ""
+playersSearchBox.PlaceholderText = "🔍 поиск по нику..."
+playersSearchBox.TextColor3 = Color3.fromRGB(220, 220, 240)
+playersSearchBox.PlaceholderColor3 = Color3.fromRGB(110, 110, 130)
+playersSearchBox.Font = Enum.Font.Gotham
+playersSearchBox.TextSize = 12
+playersSearchBox.TextXAlignment = Enum.TextXAlignment.Left
+playersSearchBox.ClearTextOnFocus = false
+playersSearchBox.Parent = playersSearchFrame
+
+-- Скролл-список игроков
+local playersScroll = Instance.new("ScrollingFrame")
+playersScroll.Size = UDim2.new(0.4, -25, 1, -255)
+playersScroll.Position = UDim2.new(0.6, 10, 0, 237)
+playersScroll.BackgroundColor3 = Color3.fromRGB(20, 20, 25)
+playersScroll.BorderSizePixel = 0
+playersScroll.ScrollBarThickness = 8
+playersScroll.ScrollBarImageColor3 = Color3.fromRGB(100, 100, 120)
+playersScroll.CanvasSize = UDim2.new(0, 0, 0, 0)
+playersScroll.ScrollingDirection = Enum.ScrollingDirection.Y
+playersScroll.ClipsDescendants = true
+playersScroll.Parent = mainFrame
+Instance.new("UICorner", playersScroll).CornerRadius = UDim.new(0, 8)
+
+local playersLayout = Instance.new("UIListLayout")
+playersLayout.Padding = UDim.new(0, 4)
+playersLayout.SortOrder = Enum.SortOrder.LayoutOrder
+playersLayout.Parent = playersScroll
+
+playersLayout:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(function()
+    playersScroll.CanvasSize = UDim2.new(0, 0, 0, playersLayout.AbsoluteContentSize.Y + 10)
+end)
+
+-- === ЛОГИКА ОТКРЫТИЯ/ЗАКРЫТИЯ ===
+openBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = true
+end)
+closeBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+end)
+hideBtn.MouseButton1Click:Connect(function()
+    mainFrame.Visible = false
+end)
+
+-- === ЛОГИКА АНИМАЦИЙ ===
+local trackedPlayers = {}
+local entries = {}
+local updateConn = nil
+local animConns = {}
+local animateIds = {}
+local ready = {}
+
+local function clearList()
+    for _, c in ipairs(scrollFrame:GetChildren()) do
+        if c:IsA("Frame") then c:Destroy() end
+    end
+    entries = {}
+    scrollFrame.CanvasSize = UDim2.new(0, 0, 0, 0)
+end
+
+local function showToast(text)
+    local toast = Instance.new("TextLabel")
+    toast.Size = UDim2.new(0, 260, 0, 30)
+    toast.Position = UDim2.new(0.5, -130, 1, -50)
+    toast.BackgroundColor3 = Color3.fromRGB(60, 160, 90)
+    toast.Text = "✅ " .. text
+    toast.TextColor3 = Color3.fromRGB(255, 255, 255)
+    toast.Font = Enum.Font.GothamBold
+    toast.TextSize = 13
+    toast.Parent = mainFrame
+    Instance.new("UICorner", toast).CornerRadius = UDim.new(0, 6)
+    task.delay(1.5, function() toast:Destroy() end)
+end
+
+local function addEntry(playerName, animId)
+    local cleanId = tostring(animId):gsub("rbxassetid://", "")
+    if cleanId == "" or cleanId == "0" then return end
+
+    local set = animateIds[playerName]
+    if set and set[cleanId] then return end
+
+    local key = playerName .. "|" .. cleanId
+    if entries[key] then return end
+
+    local row = Instance.new("Frame")
+    row.Size = UDim2.new(1, -8, 0, 32)
+    row.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+    row.BorderSizePixel = 0
+    row.Parent = scrollFrame
+    Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+    if playerName and playerName ~= "" then
+        local ownerLbl = Instance.new("TextLabel")
+        ownerLbl.Size = UDim2.new(0, 100, 1, 0)
+        ownerLbl.Position = UDim2.new(0, 6, 0, 0)
+        ownerLbl.BackgroundTransparency = 1
+        ownerLbl.Text = playerName
+        ownerLbl.TextColor3 = Color3.fromRGB(255, 200, 100)
+        ownerLbl.Font = Enum.Font.GothamBold
+        ownerLbl.TextSize = 10
+        ownerLbl.TextXAlignment = Enum.TextXAlignment.Left
+        ownerLbl.TextTruncate = Enum.TextTruncate.AtEnd
+        ownerLbl.Parent = row
+    end
+
+    local idBtn = Instance.new("TextButton")
+    idBtn.Size = UDim2.new(1, -120, 0.55, 0)
+    idBtn.Position = UDim2.new(0, 108, 0, 0)
+    idBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+    idBtn.Text = cleanId
+    idBtn.TextColor3 = Color3.fromRGB(100, 200, 255)
+    idBtn.Font = Enum.Font.GothamBold
+    idBtn.TextSize = 12
+    idBtn.TextXAlignment = Enum.TextXAlignment.Center
+    idBtn.Parent = row
+    Instance.new("UICorner", idBtn).CornerRadius = UDim.new(0, 4)
+
+    local idHint = Instance.new("TextLabel")
+    idHint.Size = UDim2.new(1, -120, 0.4, 0)
+    idHint.Position = UDim2.new(0, 108, 0.58, 0)
+    idHint.BackgroundTransparency = 1
+    idHint.Text = "нажми чтобы скопировать"
+    idHint.TextColor3 = Color3.fromRGB(100, 100, 120)
+    idHint.Font = Enum.Font.Gotham
+    idHint.TextSize = 9
+    idHint.TextXAlignment = Enum.TextXAlignment.Left
+    idHint.Parent = row
+
+    entries[key] = true
+
+    idBtn.MouseButton1Click:Connect(function()
+        if setclipboard then
+            setclipboard(cleanId)
+            idBtn.BackgroundColor3 = Color3.fromRGB(60, 160, 90)
+            idBtn.Text = "✅ " .. cleanId
+            showToast("ID скопирован: " .. cleanId)
+            task.delay(1, function()
+                if idBtn and idBtn.Parent then
+                    idBtn.BackgroundColor3 = Color3.fromRGB(45, 55, 75)
+                    idBtn.Text = cleanId
+                end
+            end)
+        end
+    end)
+end
+
+local function updateList()
+    for player in pairs(trackedPlayers) do
+        if ready[player.Name] then
+            local char = player.Character
+            if char then
+                local hum = char:FindFirstChildOfClass("Humanoid")
+                if hum then
+                    local animator = hum:FindFirstChildOfClass("Animator")
+                    if animator then
+                        for _, track in ipairs(animator:GetPlayingAnimationTracks()) do
+                            if track.Animation then
+                                addEntry(player.Name, track.Animation.AnimationId)
+                            end
+                        end
+                    end
+                end
+            end
+        end
+    end
+end
+
+local function bindAnimator(player, char)
+    if animConns[player] then animConns[player]:Disconnect(); animConns[player] = nil end
+    ready[player.Name] = false
+    animateIds[player.Name] = {}
+
+    task.spawn(function()
+        local animate = char:WaitForChild("Animate", 5)
+        if animate then
+            task.wait(1)
+            animateIds[player.Name] = collectAnimateIds(char)
+            task.wait(2)
+            local more = collectAnimateIds(char)
+            for id in pairs(more) do
+                animateIds[player.Name][id] = true
+            end
+        end
+        ready[player.Name] = true
+    end)
+
+    local hum = char:WaitForChild("Humanoid", 10)
+    if not hum then return end
+    local animator = hum:WaitForChild("Animator", 10)
+    if not animator then return end
+    animConns[player] = animator.AnimationPlayed:Connect(function(track)
+        if track.Animation and trackedPlayers[player] and ready[player.Name] then
+            addEntry(player.Name, track.Animation.AnimationId)
+        end
+    end)
+end
+
+local function stopAll()
+    if updateConn then updateConn:Disconnect(); updateConn = nil end
+    for _, c in pairs(animConns) do c:Disconnect() end
+    animConns = {}
+    trackedPlayers = {}
+    animateIds = {}
+    ready = {}
+end
+
+local function startTracking(playerList)
+    stopAll()
+    clearList()
+    if #playerList == 0 then return end
+
+    for _, player in ipairs(playerList) do
+        trackedPlayers[player] = true
+        if player.Character then bindAnimator(player, player.Character) end
+        player.CharacterAdded:Connect(function(c)
+            if trackedPlayers[player] then bindAnimator(player, c) end
+        end)
+    end
+
+    local names = {}
+    for p in pairs(trackedPlayers) do table.insert(names, p.Name) end
+    table.sort(names)
+    statusLabel.Text = "Слежу за: " .. table.concat(names, ", ")
+
+    updateConn = RunService.Heartbeat:Connect(updateList)
+end
+
+local function parseNames(text)
+    local names = {}
+    for token in text:gmatch("[^,%s;]+") do
+        if token ~= "" then table.insert(names, token) end
+    end
+    return names
+end
+
+searchBtn.MouseButton1Click:Connect(function()
+    local names = parseNames(nameBox.Text)
+    if #names == 0 then return end
+    local found, missing = {}, {}
+    for _, name in ipairs(names) do
+        local p = Players:FindFirstChild(name)
+        if p then table.insert(found, p) else table.insert(missing, name) end
+    end
+    if #found > 0 then startTracking(found) end
+    if #missing > 0 then searchBtn.Text = "Нет: " .. #missing else searchBtn.Text = "Слежу ✔" end
+    task.wait(1.5)
+    searchBtn.Text = "Найти"
+end)
+
+nameBox.FocusLost:Connect(function(enter)
+    if enter then searchBtn:Activate() end
+end)
+
+-- === СПИСОК ИГРОКОВ ===
+local playerRows = {}   -- [player] = row
+local playerSearchText = ""
+
+local function rebuildPlayersList()
+    for _, row in pairs(playerRows) do row:Destroy() end
+    playerRows = {}
+
+    local filter = playerSearchText:lower()
+    local list = Players:GetPlayers()
+    table.sort(list, function(a, b) return a.Name:lower() < b.Name:lower() end)
+
+    for _, plr in ipairs(list) do
+        if filter == "" or plr.Name:lower():find(filter, 1, true) then
+            local row = Instance.new("Frame")
+            row.Size = UDim2.new(1, -8, 0, 30)
+            row.BackgroundColor3 = Color3.fromRGB(35, 35, 45)
+            row.BorderSizePixel = 0
+            row.Parent = playersScroll
+            Instance.new("UICorner", row).CornerRadius = UDim.new(0, 6)
+
+            -- Ник (кликабельный — копирует ник)
+            local nameBtn = Instance.new("TextButton")
+            nameBtn.Size = UDim2.new(1, -40, 0.6, 0)
+            nameBtn.Position = UDim2.new(0, 6, 0, 0)
+            nameBtn.BackgroundTransparency = 1
+            nameBtn.Text = plr.Name
+            nameBtn.TextColor3 = (plr == LocalPlayer) and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(220, 220, 240)
+            nameBtn.Font = Enum.Font.GothamBold
+            nameBtn.TextSize = 11
+            nameBtn.TextXAlignment = Enum.TextXAlignment.Left
+            nameBtn.TextTruncate = Enum.TextTruncate.AtEnd
+            nameBtn.Parent = row
+
+            local nameHint = Instance.new("TextLabel")
+            nameHint.Size = UDim2.new(1, -40, 0.4, 0)
+            nameHint.Position = UDim2.new(0, 6, 0.6, 0)
+            nameHint.BackgroundTransparency = 1
+            nameHint.Text = "нажми чтобы скопировать ник"
+            nameHint.TextColor3 = Color3.fromRGB(100, 100, 120)
+            nameHint.Font = Enum.Font.Gotham
+            nameHint.TextSize = 8
+            nameHint.TextXAlignment = Enum.TextXAlignment.Left
+            nameHint.Parent = row
+
+            -- Кнопка «+» — добавить в отслеживание
+            local addBtn = Instance.new("TextButton")
+            addBtn.Size = UDim2.new(0, 28, 0, 28)
+            addBtn.Position = UDim2.new(1, -34, 0, 1)
+            addBtn.BackgroundColor3 = Color3.fromRGB(70, 130, 200)
+            addBtn.Text = "+"
+            addBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+            addBtn.Font = Enum.Font.GothamBold
+            addBtn.TextSize = 16
+            addBtn.Parent = row
+            Instance.new("UICorner", addBtn).CornerRadius = UDim.new(0, 6)
+
+            nameBtn.MouseButton1Click:Connect(function()
+                if setclipboard then
+                    setclipboard(plr.Name)
+                    nameBtn.Text = "✅ " .. plr.Name
+                    nameBtn.TextColor3 = Color3.fromRGB(100, 255, 150)
+                    showToast("Ник скопирован: " .. plr.Name)
+                    task.delay(1, function()
+                        if nameBtn and nameBtn.Parent then
+                            nameBtn.Text = plr.Name
+                            nameBtn.TextColor3 = (plr == LocalPlayer) and Color3.fromRGB(100, 255, 150) or Color3.fromRGB(220, 220, 240)
+                        end
+                    end)
+                end
+            end)
+
+            addBtn.MouseButton1Click:Connect(function()
+                -- Добавляем ник в поле и запускаем отслеживание этого игрока
+                local current = nameBox.Text
+                if current == "" then
+                    nameBox.Text = plr.Name
+                else
+                    -- Проверяем, нет ли уже
+                    local already = false
+                    for token in current:gmatch("[^,%s;]+") do
+                        if token:lower() == plr.Name:lower() then already = true break end
+                    end
+                    if not already then
+                        nameBox.Text = current .. ", " .. plr.Name
+                    end
+                end
+                -- Запускаем отслеживание всех из поля
+                searchBtn:Activate()
+            end)
+
+            playerRows[plr] = row
+        end
+    end
+end
+
+playersSearchBox:GetPropertyChangedSignal("Text"):Connect(function()
+    playerSearchText = playersSearchBox.Text
+    rebuildPlayersList()
+end)
+
+Players.PlayerAdded:Connect(function()
+    task.wait(0.1)
+    rebuildPlayersList()
+end)
+Players.PlayerRemoving:Connect(function()
+    task.wait(0.1)
+    rebuildPlayersList()
+end)
+
+-- Первичная сборка
+rebuildPlayersList()
